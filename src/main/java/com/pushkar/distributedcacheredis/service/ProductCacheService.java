@@ -10,14 +10,14 @@ import org.springframework.stereotype.Service;
 import com.pushkar.distributedcacheredis.entity.Product;
 import com.pushkar.distributedcacheredis.repository.ProductRepository;
 
-@Service 
+@Service
 public class ProductCacheService {
     private static final String CACHE_PREFIX = "product:";
     private static final Duration CACHE_TTL = Duration.ofMinutes(10);
     private final ProductRepository productRepository;
     private final RedisTemplate<String, Product> redisTemplate;
 
-    @Autowired 
+    @Autowired
     public ProductCacheService(ProductRepository productRepository, RedisTemplate<String, Product> redisTemplate) {
         this.productRepository = productRepository;
         this.redisTemplate = redisTemplate;
@@ -28,7 +28,7 @@ public class ProductCacheService {
 
         // check redis
         Product cached = redisTemplate.opsForValue().get(cacheKey);
-        if(cached != null) {
+        if (cached != null) {
             System.out.println("CACHE HIT for " + id);
             return Optional.of(cached);
         }
@@ -42,7 +42,20 @@ public class ProductCacheService {
         return fromDb;
     }
 
-    public Product createProduct(Product product) {
-        return productRepository.save(product);
+    public Product writeThrough(Product product) {
+        // db write
+        Product saved = productRepository.save(product);
+
+        // cache write - in sync
+        String cacheKey = CACHE_PREFIX + saved.getId();
+        redisTemplate.opsForValue().set(cacheKey, saved, CACHE_TTL);
+        System.out.println("WRITE-THROUGH: synced product " + saved.getId() + " to DB and cache");
+        return saved;
+    }
+
+    public void deleteProduct(String id) {
+        productRepository.deleteById(id);
+        redisTemplate.delete(CACHE_PREFIX + id);
+        System.out.println("WRITE-THROUGH: deleted product " + id + " from Db and cache");
     }
 }
