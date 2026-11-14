@@ -16,11 +16,13 @@ public class ProductCacheService {
     private static final Duration CACHE_TTL = Duration.ofMinutes(10);
     private final ProductRepository productRepository;
     private final RedisTemplate<String, Product> redisTemplate;
+    private final WriteBehindQueueService writeBehindQueueService;
 
     @Autowired
-    public ProductCacheService(ProductRepository productRepository, RedisTemplate<String, Product> redisTemplate) {
+    public ProductCacheService(ProductRepository productRepository, RedisTemplate<String, Product> redisTemplate, WriteBehindQueueService writeBehindQueueService) {
         this.productRepository = productRepository;
         this.redisTemplate = redisTemplate;
+        this.writeBehindQueueService = writeBehindQueueService;
     }
 
     public Optional<Product> getProduct(String id) {
@@ -51,6 +53,18 @@ public class ProductCacheService {
         redisTemplate.opsForValue().set(cacheKey, saved, CACHE_TTL);
         System.out.println("WRITE-THROUGH: synced product " + saved.getId() + " to DB and cache");
         return saved;
+    }
+
+    public Product writeBehind(Product product) {
+        // cache updated
+        String cacheKey = CACHE_PREFIX + product.getId();
+        redisTemplate.opsForValue().set(cacheKey, product, CACHE_TTL);
+
+        // db write queued
+        writeBehindQueueService.enqueue(product);
+
+        System.out.println("WRITE-BEHIND: cached " + product.getId() + " immediately, DB write queued");
+        return product;
     }
 
     public void deleteProduct(String id) {

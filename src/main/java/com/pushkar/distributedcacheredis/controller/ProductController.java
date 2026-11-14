@@ -29,6 +29,11 @@ public class ProductController {
         return productCacheService.writeThrough(product);
     }
 
+    @PostMapping("/write-behind")
+    public Product createWriteBehind(@RequestBody Product product) {
+        return productCacheService.writeBehind(product);
+    }
+
     @PutMapping("/{id}")
     public Product update(@PathVariable String id, @RequestBody Product product) {
         product.setId(id);
