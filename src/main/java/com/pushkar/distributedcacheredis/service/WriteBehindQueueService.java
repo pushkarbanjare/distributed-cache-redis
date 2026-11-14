@@ -16,10 +16,12 @@ import jakarta.annotation.PreDestroy;
 
 @Service 
 public class WriteBehindQueueService {
-    private final BlockingQueue<Product> pendingWrites = new LinkedBlockingQueue<>();
+    private static final int MAX_QUEUE_SIZE = 1000;
+    private final BlockingQueue<Product> pendingWrites = new LinkedBlockingQueue<>(MAX_QUEUE_SIZE);
     private final ScheduledExecutorService flushExecutor = Executors.newSingleThreadScheduledExecutor();
     private final ProductRepositoryFlusher flusher;
     private static final long FLUSH_INTERVAL_SECONDS = 5;
+
 
     public WriteBehindQueueService(ProductRepositoryFlusher flusher) {
         this.flusher = flusher;
@@ -27,8 +29,9 @@ public class WriteBehindQueueService {
     }
 
     public void enqueue(Product product) {
-        pendingWrites.offer(product);
-        System.out.println("QUEUED for DB flush: " + product.getId() + " (queue size now: " + pendingWrites.size() + ")");
+        boolean accepted = pendingWrites.offer(product);
+        if(!accepted) System.out.println("QUEUE FULL — dropping write for " + product.getId() + " (this is a real data-loss event, would need alerting in production)");
+        else System.out.println("QUEUED for DB flush: " + product.getId() + " (queue size now: " + pendingWrites.size() + ")");
     }
 
     private void startBackgroundFlush() {

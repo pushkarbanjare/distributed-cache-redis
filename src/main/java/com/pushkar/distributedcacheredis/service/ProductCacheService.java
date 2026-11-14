@@ -2,6 +2,7 @@ package com.pushkar.distributedcacheredis.service;
 
 import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -17,6 +18,7 @@ public class ProductCacheService {
     private final ProductRepository productRepository;
     private final RedisTemplate<String, Product> redisTemplate;
     private final WriteBehindQueueService writeBehindQueueService;
+    private final ConcurrentHashMap<String, Object> lockMap = new ConcurrentHashMap<>();
 
     @Autowired
     public ProductCacheService(ProductRepository productRepository, RedisTemplate<String, Product> redisTemplate, WriteBehindQueueService writeBehindQueueService) {
@@ -44,15 +46,22 @@ public class ProductCacheService {
         return fromDb;
     }
 
-    public Product writeThrough(Product product) {
-        // db write
-        Product saved = productRepository.save(product);
+    private Object getLockFor(String productId) {
+        return lockMap.computeIfAbsent(productId, id -> new Object());
+    }
 
-        // cache write - in sync
-        String cacheKey = CACHE_PREFIX + saved.getId();
-        redisTemplate.opsForValue().set(cacheKey, saved, CACHE_TTL);
-        System.out.println("WRITE-THROUGH: synced product " + saved.getId() + " to DB and cache");
-        return saved;
+    public Product writeThrough(Product product) {
+        Object lock = getLockFor(product.getId());
+        synchronized(lock) {
+            // db write
+            Product saved = productRepository.save(product);
+
+            // cache write - in sync
+            String cacheKey = CACHE_PREFIX + saved.getId();
+            redisTemplate.opsForValue().set(cacheKey, saved, CACHE_TTL);
+            System.out.println("WRITE-THROUGH: synced product " + saved.getId() + " to DB and cache");
+            return saved;
+        }
     }
 
     public Product writeBehind(Product product) {
